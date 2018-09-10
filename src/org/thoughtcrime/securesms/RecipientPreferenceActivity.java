@@ -30,6 +30,7 @@ import android.support.v7.widget.Toolbar;
 import android.telephony.PhoneNumberUtils;
 
 import org.thoughtcrime.securesms.components.SwitchPreferenceCompat;
+import org.thoughtcrime.securesms.database.GroupDatabase;
 import org.thoughtcrime.securesms.logging.Log;
 import android.util.Pair;
 import android.view.MenuItem;
@@ -37,6 +38,7 @@ import android.view.View;
 import android.view.WindowManager;
 import android.widget.ImageView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
 
@@ -67,6 +69,7 @@ import org.thoughtcrime.securesms.util.Dialogs;
 import org.thoughtcrime.securesms.util.DynamicLanguage;
 import org.thoughtcrime.securesms.util.DynamicNoActionBarTheme;
 import org.thoughtcrime.securesms.util.DynamicTheme;
+import org.thoughtcrime.securesms.util.GroupUtil;
 import org.thoughtcrime.securesms.util.IdentityUtil;
 import org.thoughtcrime.securesms.util.TextSecurePreferences;
 import org.thoughtcrime.securesms.util.Util;
@@ -378,10 +381,7 @@ public class RecipientPreferenceActivity extends PassphraseRequiredActionBarActi
 
       if (recipient.isGroupRecipient()) {
         if (colorPreference    != null) colorPreference.setVisible(false);
-        if (blockPreference    != null) blockPreference.setVisible(false);
         if (identityPreference != null) identityPreference.setVisible(false);
-        if (privacyCategory    != null) privacyCategory.setVisible(false);
-        if (divider            != null) divider.setVisible(false);
         if (aboutCategory      != null) getPreferenceScreen().removePreference(aboutCategory);
         if (aboutDivider       != null) getPreferenceScreen().removePreference(aboutDivider);
       } else {
@@ -659,31 +659,55 @@ public class RecipientPreferenceActivity extends PassphraseRequiredActionBarActi
       }
 
       private void handleBlock() {
-        new AlertDialog.Builder(getActivity())
-            .setTitle(R.string.RecipientPreferenceActivity_block_this_contact_question)
-            .setMessage(R.string.RecipientPreferenceActivity_you_will_no_longer_receive_messages_and_calls_from_this_contact)
-            .setCancelable(true)
-            .setNegativeButton(android.R.string.cancel, null)
-            .setPositiveButton(R.string.RecipientPreferenceActivity_block, new DialogInterface.OnClickListener() {
-              @Override
-              public void onClick(DialogInterface dialog, int which) {
-                setBlocked(recipient, true);
+        new AsyncTask<Void, Void, Pair<Integer, Integer>>() {
+
+          @Override
+          protected Pair<Integer, Integer> doInBackground(Void... voids) {
+            int titleRes = R.string.RecipientPreferenceActivity_block_this_contact_question;
+            int bodyRes  = R.string.RecipientPreferenceActivity_you_will_no_longer_receive_messages_and_calls_from_this_contact;
+
+            if (recipient.isGroupRecipient()) {
+              bodyRes = R.string.RecipientPreferenceActivity_block_and_leave_group_description;
+
+              if (recipient.isGroupRecipient() && DatabaseFactory.getGroupDatabase(getContext()).isActive(recipient.getAddress().toGroupString())) {
+                titleRes = R.string.RecipientPreferenceActivity_block_and_leave_group;
+              } else {
+                titleRes = R.string.RecipientPreferenceActivity_block_group;
               }
-            }).show();
+            }
+
+            return new Pair<>(titleRes, bodyRes);
+          }
+
+          @Override
+          protected void onPostExecute(Pair<Integer, Integer> titleAndBody) {
+            new AlertDialog.Builder(getActivity())
+                           .setTitle(titleAndBody.first)
+                           .setMessage(titleAndBody.second)
+                           .setCancelable(true)
+                           .setNegativeButton(android.R.string.cancel, null)
+                           .setPositiveButton(R.string.RecipientPreferenceActivity_block, (dialog, which) -> {
+                             setBlocked(recipient, true);
+                           }).show();
+          }
+        }.execute();
       }
 
       private void handleUnblock() {
+        int titleRes = R.string.RecipientPreferenceActivity_unblock_this_contact_question;
+        int bodyRes  = R.string.RecipientPreferenceActivity_you_will_once_again_be_able_to_receive_messages_and_calls_from_this_contact;
+
+        if (recipient.isGroupRecipient()) {
+          titleRes = R.string.RecipientPreferenceActivity_unblock_this_group_question;
+          bodyRes  = R.string.RecipientPreferenceActivity_unblock_this_group_description;
+        }
+
         new AlertDialog.Builder(getActivity())
-            .setTitle(R.string.RecipientPreferenceActivity_unblock_this_contact_question)
-            .setMessage(R.string.RecipientPreferenceActivity_you_will_once_again_be_able_to_receive_messages_and_calls_from_this_contact)
-            .setCancelable(true)
-            .setNegativeButton(android.R.string.cancel, null)
-            .setPositiveButton(R.string.RecipientPreferenceActivity_unblock, new DialogInterface.OnClickListener() {
-              @Override
-              public void onClick(DialogInterface dialog, int which) {
-                setBlocked(recipient, false);
-              }
-            }).show();
+                       .setTitle(titleRes)
+                       .setMessage(bodyRes)
+                       .setCancelable(true)
+                       .setNegativeButton(android.R.string.cancel, null)
+                       .setPositiveButton(R.string.RecipientPreferenceActivity_unblock, (dialog, which) -> setBlocked(recipient, false)).show();
       }
 
       private void setBlocked(final Recipient recipient, final boolean blocked) {
@@ -694,6 +718,16 @@ public class RecipientPreferenceActivity extends PassphraseRequiredActionBarActi
 
             DatabaseFactory.getRecipientDatabase(context)
                            .setBlocked(recipient, blocked);
+
+            if (recipient.isGroupRecipient() && DatabaseFactory.getGroupDatabase(context).isActive(recipient.getAddress().toGroupString())) {
+              boolean leaveSuccess = GroupUtil.leaveGroup(context, recipient);
+
+              if (!leaveSuccess) {
+                Log.w(TAG, "Failed to leave group. Can't block.");
+                Toast.makeText(context, R.string.RecipientPreferenceActivity_error_leaving_group, Toast.LENGTH_LONG).show();
+                return null;
+              }
+            }
 
             ApplicationContext.getInstance(context)
                               .getJobManager()

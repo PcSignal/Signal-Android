@@ -3,14 +3,22 @@ package org.thoughtcrime.securesms.util;
 import android.content.Context;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
+import android.support.annotation.WorkerThread;
+
+import com.google.protobuf.ByteString;
 
 import org.thoughtcrime.securesms.R;
 import org.thoughtcrime.securesms.database.Address;
+import org.thoughtcrime.securesms.database.DatabaseFactory;
+import org.thoughtcrime.securesms.database.GroupDatabase;
 import org.thoughtcrime.securesms.logging.Log;
+import org.thoughtcrime.securesms.mms.OutgoingGroupMediaMessage;
 import org.thoughtcrime.securesms.recipients.Recipient;
 import org.thoughtcrime.securesms.recipients.RecipientModifiedListener;
+import org.thoughtcrime.securesms.sms.MessageSender;
 
 import java.io.IOException;
+import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
 
@@ -20,7 +28,7 @@ public class GroupUtil {
 
   private static final String ENCODED_SIGNAL_GROUP_PREFIX = "__textsecure_group__!";
   private static final String ENCODED_MMS_GROUP_PREFIX    = "__signal_mms_group__!";
-  private static final String TAG                  = GroupUtil.class.getSimpleName();
+  private static final String TAG                         = GroupUtil.class.getSimpleName();
 
   public static String getEncodedId(byte[] groupId, boolean mms) {
     return (mms ? ENCODED_MMS_GROUP_PREFIX  : ENCODED_SIGNAL_GROUP_PREFIX) + Hex.toStringCondensed(groupId);
@@ -40,6 +48,41 @@ public class GroupUtil {
 
   public static boolean isMmsGroup(@NonNull String groupId) {
     return groupId.startsWith(ENCODED_MMS_GROUP_PREFIX);
+  }
+
+  @WorkerThread
+  public static boolean leaveGroup(@NonNull Context context, @NonNull Recipient groupRecipient) {
+    if (!groupRecipient.isGroupRecipient()) {
+      return false;
+    }
+
+    try {
+      GroupDatabase groupDatabase = DatabaseFactory.getGroupDatabase(context);
+      String        groupId       = groupRecipient.getAddress().toGroupString();
+      long          threadId      = DatabaseFactory.getThreadDatabase(context).getThreadIdFor(groupRecipient);
+
+      if (threadId == -1) {
+        Log.w(TAG, "Could not leave group due to no thread being found.");
+        return false;
+      }
+
+      if (groupDatabase.isActive(groupId)) {
+        groupDatabase.setActive(groupId, false);
+
+        GroupContext groupContext = GroupContext.newBuilder()
+                                                .setId(ByteString.copyFrom(GroupUtil.getDecodedId(groupId)))
+                                                .setType(GroupContext.Type.QUIT)
+                                                .build();
+
+        OutgoingGroupMediaMessage outgoingMessage = new OutgoingGroupMediaMessage(groupRecipient, groupContext, null, System.currentTimeMillis(), 0, null, Collections.emptyList());
+        MessageSender.send(context, outgoingMessage, threadId, false, null);
+        groupDatabase.remove(groupId, Address.fromSerialized(TextSecurePreferences.getLocalNumber(context)));
+      }
+    } catch (IOException e) {
+      Log.w(TAG, "Could not leave group due to an exception.", e);
+      return false;
+    }
+    return true;
   }
 
   public static @NonNull GroupDescription getDescription(@NonNull Context context, @Nullable String encodedGroup) {

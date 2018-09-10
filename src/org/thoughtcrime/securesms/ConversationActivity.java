@@ -693,26 +693,34 @@ public class ConversationActivity extends PassphraseRequiredActionBarActivity
   }
 
   private void handleUnblock() {
+    int titleRes = R.string.ConversationActivity_unblock_this_contact_question;
+    int bodyRes  = R.string.ConversationActivity_you_will_once_again_be_able_to_receive_messages_and_calls_from_this_contact;
+
+    if (recipient.isGroupRecipient()) {
+      titleRes = R.string.ConversationActivity_unblock_this_group_question;
+      bodyRes  = R.string.ConversationActivity_unblock_this_group_description;
+    }
+
     //noinspection CodeBlock2Expr
     new AlertDialog.Builder(this)
-        .setTitle(R.string.ConversationActivity_unblock_this_contact_question)
-        .setMessage(R.string.ConversationActivity_you_will_once_again_be_able_to_receive_messages_and_calls_from_this_contact)
-        .setNegativeButton(android.R.string.cancel, null)
-        .setPositiveButton(R.string.ConversationActivity_unblock, (dialog, which) -> {
-          new AsyncTask<Void, Void, Void>() {
-            @Override
-            protected Void doInBackground(Void... params) {
-              DatabaseFactory.getRecipientDatabase(ConversationActivity.this)
+                   .setTitle(titleRes)
+                   .setMessage(bodyRes)
+                   .setNegativeButton(android.R.string.cancel, null)
+                   .setPositiveButton(R.string.ConversationActivity_unblock, (dialog, which) -> {
+                     new AsyncTask<Void, Void, Void>() {
+                       @Override
+                       protected Void doInBackground(Void... params) {
+                         DatabaseFactory.getRecipientDatabase(ConversationActivity.this)
                              .setBlocked(recipient, false);
 
-              ApplicationContext.getInstance(ConversationActivity.this)
-                                .getJobManager()
-                                .add(new MultiDeviceBlockedUpdateJob(ConversationActivity.this));
+                         ApplicationContext.getInstance(ConversationActivity.this)
+                             .getJobManager()
+                             .add(new MultiDeviceBlockedUpdateJob(ConversationActivity.this));
 
-              return null;
-            }
-          }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
-        }).show();
+                         return null;
+                       }
+                     }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+                   }).show();
   }
 
   @TargetApi(Build.VERSION_CODES.KITKAT)
@@ -847,24 +855,12 @@ public class ConversationActivity extends PassphraseRequiredActionBarActivity
     builder.setCancelable(true);
     builder.setMessage(getString(R.string.ConversationActivity_are_you_sure_you_want_to_leave_this_group));
     builder.setPositiveButton(R.string.yes, (dialog, which) -> {
-      Context self = ConversationActivity.this;
+      boolean leaveSuccess = GroupUtil.leaveGroup(this, getRecipient());
 
-      try {
-        String groupId = getRecipient().getAddress().toGroupString();
-        DatabaseFactory.getGroupDatabase(self).setActive(groupId, false);
-
-        GroupContext context = GroupContext.newBuilder()
-                                           .setId(ByteString.copyFrom(GroupUtil.getDecodedId(groupId)))
-                                           .setType(GroupContext.Type.QUIT)
-                                           .build();
-
-        OutgoingGroupMediaMessage outgoingMessage = new OutgoingGroupMediaMessage(getRecipient(), context, null, System.currentTimeMillis(), 0, null, Collections.emptyList());
-        MessageSender.send(self, outgoingMessage, threadId, false, null);
-        DatabaseFactory.getGroupDatabase(self).remove(groupId, Address.fromSerialized(TextSecurePreferences.getLocalNumber(self)));
+      if (leaveSuccess) {
         initializeEnabledCheck();
-      } catch (IOException e) {
-        Log.w(TAG, e);
-        Toast.makeText(self, R.string.ConversationActivity_error_leaving_group, Toast.LENGTH_LONG).show();
+      } else {
+        Toast.makeText(this, R.string.ConversationActivity_error_leaving_group, Toast.LENGTH_LONG).show();
       }
     });
 
