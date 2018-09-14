@@ -16,7 +16,9 @@
  */
 package org.thoughtcrime.securesms.util;
 
-public abstract class CharacterCalculator {
+import java.io.Serializable;
+
+public abstract class CharacterCalculator implements Serializable {
 
   public abstract CharacterState calculateCharacters(String messageBody);
 

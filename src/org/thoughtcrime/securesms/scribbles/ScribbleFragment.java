@@ -17,6 +17,7 @@ import android.view.View;
 import android.view.ViewGroup;
 
 import org.thoughtcrime.securesms.R;
+import org.thoughtcrime.securesms.TransportOption;
 import org.thoughtcrime.securesms.logging.Log;
 import org.thoughtcrime.securesms.mms.GlideApp;
 import org.thoughtcrime.securesms.mms.GlideRequests;
@@ -47,8 +48,8 @@ public class ScribbleFragment extends Fragment implements ScribbleHud.EventListe
 
   private static final String TAG = ScribbleFragment.class.getName();
 
-  private static final String KEY_IMAGE_URI    = "image_uri";
-  private static final String KEY_COMPOSE_MODE = "compose_mode";
+  private static final String KEY_IMAGE_URI = "image_uri";
+  private static final String KEY_TRANSPORT = "transport";
 
   public static final int SELECT_STICKER_REQUEST_CODE = 123;
 
@@ -57,10 +58,10 @@ public class ScribbleFragment extends Fragment implements ScribbleHud.EventListe
   private ScribbleView  scribbleView;
   private GlideRequests glideRequests;
 
-  public static ScribbleFragment newInstance(@NonNull Uri imageUri, ScribbleComposeMode composeMode) {
+  public static ScribbleFragment newInstance(@NonNull Uri imageUri, @NonNull Optional<TransportOption> transportOption) {
     Bundle args = new Bundle();
     args.putParcelable(KEY_IMAGE_URI, imageUri);
-    args.putSerializable(KEY_COMPOSE_MODE, composeMode);
+    args.putSerializable(KEY_TRANSPORT, transportOption);
 
     ScribbleFragment fragment = new ScribbleFragment();
     fragment.setArguments(args);
@@ -91,7 +92,7 @@ public class ScribbleFragment extends Fragment implements ScribbleHud.EventListe
     this.scribbleView  = view.findViewById(R.id.scribble_view);
 
     scribbleHud.setEventListener(this);
-    scribbleHud.setIsSendMode((ScribbleComposeMode) getArguments().getSerializable(KEY_COMPOSE_MODE));
+    scribbleHud.setTransportOption((Optional<TransportOption>) getArguments().getSerializable(KEY_TRANSPORT));
 
     scribbleView.setMotionViewCallback(motionViewCallback);
     scribbleView.setDrawingChangedListener(() -> scribbleHud.setColorPalette(scribbleView.getUniqueColors()));
@@ -244,7 +245,7 @@ public class ScribbleFragment extends Fragment implements ScribbleHud.EventListe
   }
 
   @Override
-  public void onEditComplete(@NonNull Optional<String> message, boolean isPush) {
+  public void onEditComplete(@NonNull Optional<String> message) {
     ListenableFuture<Bitmap> future = scribbleView.getRenderedImage(glideRequests);
 
     future.addListener(new ListenableFuture.Listener<Bitmap>() {
@@ -256,7 +257,7 @@ public class ScribbleFragment extends Fragment implements ScribbleHud.EventListe
 
         byte[] data = baos.toByteArray();
 
-        controller.onImageEditComplete(provider.create(getContext(), data, MediaUtil.IMAGE_JPEG, null), result.getWidth(), result.getHeight(), data.length, message, isPush);
+        controller.onImageEditComplete(provider.create(getContext(), data, MediaUtil.IMAGE_JPEG, null), result.getWidth(), result.getHeight(), data.length, message);
       }
 
       @Override
@@ -289,7 +290,7 @@ public class ScribbleFragment extends Fragment implements ScribbleHud.EventListe
   };
 
   public interface Controller {
-    void onImageEditComplete(@NonNull Uri uri, int width, int height, long size, @NonNull Optional<String> message, boolean isPush);
+    void onImageEditComplete(@NonNull Uri uri, int width, int height, long size, @NonNull Optional<String> message);
     void onImageEditFailure();
   }
 }

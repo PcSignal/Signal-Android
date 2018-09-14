@@ -84,13 +84,13 @@ public class SignalCamera1 implements SignalCamera {
   @Override
   public void capture(@NonNull CaptureCompleteCallback callback) {
     enforcer.run(Stage.PREVIEW_STARTED, () -> {
-      camera.takePicture(null, null, (bytes, camera) -> {
-        Camera.Size       previewSize = camera.getParameters().getPictureSize();
+      camera.setOneShotPreviewCallback((data, camera) -> {
+        Camera.Size       previewSize = camera.getParameters().getPreviewSize();
         Camera.CameraInfo info        = new Camera.CameraInfo();
 
         Camera.getCameraInfo(cameraId, info);
 
-        callback.onComplete(bytes, previewSize.width, previewSize.height, info.orientation);
+        callback.onComplete(data, previewSize.width, previewSize.height, info.orientation);
       });
     });
   }

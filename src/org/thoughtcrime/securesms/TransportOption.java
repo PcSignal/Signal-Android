@@ -7,7 +7,9 @@ import org.thoughtcrime.securesms.util.CharacterCalculator;
 import org.thoughtcrime.securesms.util.CharacterCalculator.CharacterState;
 import org.whispersystems.libsignal.util.guava.Optional;
 
-public class TransportOption {
+import java.io.Serializable;
+
+public class TransportOption implements Serializable {
 
   public enum Type {
     SMS,

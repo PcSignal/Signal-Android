@@ -7,25 +7,26 @@ import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.RecyclerView;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.util.AttributeSet;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.LinearLayout;
-import android.widget.RelativeLayout;
+import android.view.WindowManager;
+import android.widget.Button;
 import android.widget.TextView;
 
 import org.thoughtcrime.securesms.R;
 import org.thoughtcrime.securesms.TransportOption;
 import org.thoughtcrime.securesms.components.ComposeText;
 import org.thoughtcrime.securesms.components.InputAwareLayout;
-import org.thoughtcrime.securesms.components.SendButton;
 import org.thoughtcrime.securesms.components.emoji.EmojiDrawer;
 import org.thoughtcrime.securesms.components.emoji.EmojiToggle;
 import org.thoughtcrime.securesms.scribbles.widget.ColorPaletteAdapter;
 import org.thoughtcrime.securesms.scribbles.widget.VerticalSlideColorPicker;
 import org.thoughtcrime.securesms.util.CharacterCalculator.CharacterState;
-import org.thoughtcrime.securesms.util.ViewUtil;
+import org.thoughtcrime.securesms.util.TextSecurePreferences;
 import org.thoughtcrime.securesms.util.views.Stub;
 import org.whispersystems.libsignal.util.guava.Optional;
 
@@ -49,14 +50,15 @@ public class ScribbleHud extends InputAwareLayout {
   private RecyclerView             colorPalette;
   private ViewGroup                inputContainer;
   private ComposeText              composeText;
-  private SendButton               sendButton;
+  private Button                   sendButton;
   private ViewGroup                sendButtonBkg;
   private EmojiToggle              emojiToggle;
   private Stub<EmojiDrawer>        emojiDrawer;
   private TextView                 charactersLeft;
 
-  private EventListener       eventListener;
-  private ColorPaletteAdapter colorPaletteAdapter;
+  private EventListener             eventListener;
+  private ColorPaletteAdapter       colorPaletteAdapter;
+  private Optional<TransportOption> transportOption;
 
   public ScribbleHud(@NonNull Context context) {
     super(context);
@@ -109,7 +111,7 @@ public class ScribbleHud extends InputAwareLayout {
 
     saveButton.setOnClickListener(v -> {
       if (eventListener != null) {
-        eventListener.onEditComplete(Optional.absent(), false);
+        eventListener.onEditComplete(Optional.absent());
       }
       setMode(Mode.NONE);
     });
@@ -143,41 +145,56 @@ public class ScribbleHud extends InputAwareLayout {
       }
     });
 
-    sendButton.addOnTransportChangedListener((newTransport, manuallySelected) -> {
-      presentCharactersRemaining();
-      composeText.setTransport(newTransport);
-      sendButtonBkg.getBackground().setColorFilter(newTransport.getBackgroundColor(), PorterDuff.Mode.MULTIPLY);
-      sendButtonBkg.getBackground().invalidateSelf();
-//      if (manuallySelected) recordSubscriptionIdPreference(newTransport.getSimSubscriptionId());
-    });
-
-    sendButton.setOnClickListener(v -> {
-      if (eventListener != null) {
-        eventListener.onEditComplete(Optional.of(composeText.getTextTrimmed()), !sendButton.getSelectedTransport().isSms());
-      }
-      setMode(Mode.NONE);
-    });
-
     setMode(Mode.NONE);
-    setIsSendMode(ScribbleComposeMode.NONE);
+    setTransportOption(Optional.absent());
   }
 
-  public void setIsSendMode(ScribbleComposeMode composeMode) {
-    switch (composeMode) {
-      case NONE:
-    }
-    if (composeMode == ScribbleComposeMode.NONE) {
-      saveButton.setVisibility(VISIBLE);
-      inputContainer.setVisibility(GONE);
-    } else {
+  public void setTransportOption(@NonNull Optional<TransportOption> transportOption) {
+    this.transportOption = transportOption;
+
+    if (transportOption.isPresent()) {
       saveButton.setVisibility(GONE);
       inputContainer.setVisibility(VISIBLE);
 
-      if (composeMode == ScribbleComposeMode.PUSH) {
-        sendButton.setDefaultTransport(TransportOption.Type.TEXTSECURE);
-      } else {
-        sendButton.setDefaultTransport(TransportOption.Type.SMS);
-      }
+      sendButton.setOnClickListener(v -> {
+        if (eventListener != null) {
+          eventListener.onEditComplete(Optional.of(composeText.getTextTrimmed()));
+        }
+        setMode(Mode.NONE);
+      });
+
+      composeText.setOnKeyListener((v, keyCode, event) -> {
+        if (event.getAction() == KeyEvent.ACTION_DOWN) {
+          if (keyCode == KeyEvent.KEYCODE_ENTER) {
+            if (TextSecurePreferences.isEnterSendsEnabled(getContext())) {
+              sendButton.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER));
+              sendButton.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER));
+              return true;
+            }
+          }
+        }
+        return false;
+      });
+
+      composeText.addTextChangedListener(new TextWatcher() {
+        @Override
+        public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
+
+        @Override
+        public void onTextChanged(CharSequence s, int start, int before, int count) { }
+
+        @Override
+        public void afterTextChanged(Editable s) {
+          presentCharactersRemaining();
+        }
+      });
+
+      int backgroundColor = transportOption.get().isType(TransportOption.Type.TEXTSECURE) ? getResources().getColor(R.color.core_blue)
+                                                                                          : getResources().getColor(R.color.grey_600);
+      sendButtonBkg.getBackground().setColorFilter(backgroundColor, PorterDuff.Mode.MULTIPLY);
+    } else {
+      saveButton.setVisibility(VISIBLE);
+      inputContainer.setVisibility(GONE);
     }
   }
 
@@ -290,9 +307,12 @@ public class ScribbleHud extends InputAwareLayout {
   }
 
   private void presentCharactersRemaining() {
+    if (!transportOption.isPresent()) {
+      return;
+    }
+
     String          messageBody     = composeText.getTextTrimmed();
-    TransportOption transportOption = sendButton.getSelectedTransport();
-    CharacterState  characterState  = transportOption.calculateCharacters(messageBody);
+    CharacterState  characterState  = transportOption.get().calculateCharacters(messageBody);
 
     if (characterState.charactersRemaining <= 15 || characterState.messagesSpent > 1) {
       // TODO: Get actual locale
@@ -355,6 +375,6 @@ public class ScribbleHud extends InputAwareLayout {
     void onColorChange(int color);
     void onUndo();
     void onDelete();
-    void onEditComplete(@NonNull Optional<String> message, boolean isPush);
+    void onEditComplete(@NonNull Optional<String> message);
   }
 }

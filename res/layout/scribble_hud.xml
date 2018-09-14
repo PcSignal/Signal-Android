@@ -114,7 +114,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:paddingLeft="10dp"
-            android:paddingStart="10dp"
+            android:paddingRight="10dp"
             android:orientation="horizontal"
             android:background="@drawable/compose_background_camera">
 
@@ -148,16 +148,18 @@
 
         </LinearLayout>
 
+
         <FrameLayout
             android:id="@+id/scribble_send_button_bkg"
             android:layout_width="@dimen/conversation_compose_height"
             android:layout_height="@dimen/conversation_compose_height"
             android:layout_marginLeft="12dp"
             android:layout_marginStart="12dp"
+            android:layout_gravity="bottom"
             android:background="@drawable/circle_tintable"
             tools:backgroundTint="@color/core_blue">
 
-            <org.thoughtcrime.securesms.components.SendButton
+            <Button
                 android:id="@+id/scribble_send_button"
                 android:layout_width="wrap_content"
                 android:layout_height="match_parent"

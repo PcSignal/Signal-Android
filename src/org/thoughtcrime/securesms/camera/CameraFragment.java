@@ -4,6 +4,8 @@ import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Matrix;
+import android.graphics.PointF;
+import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
 import android.hardware.Camera;
 import android.net.Uri;
@@ -24,6 +26,7 @@ import org.thoughtcrime.securesms.R;
 import org.thoughtcrime.securesms.camera.SignalCamera.Capabilities;
 import org.thoughtcrime.securesms.logging.Log;
 import org.thoughtcrime.securesms.providers.PersistentBlobProvider;
+import org.thoughtcrime.securesms.util.BitmapUtil;
 import org.thoughtcrime.securesms.util.MediaUtil;
 import org.thoughtcrime.securesms.util.Stopwatch;
 import org.thoughtcrime.securesms.util.TextSecurePreferences;
@@ -58,7 +61,7 @@ public class CameraFragment extends Fragment implements TextureView.SurfaceTextu
     }
 
     controller    = (Controller) getActivity();
-    camera        = SignalCamera.get(getContext(), TextSecurePreferences.getDirectCaptureCameraId(getContext()), this);
+    camera        = SignalCamera.get(TextSecurePreferences.getDirectCaptureCameraId(getContext()), this);
     orderEnforcer = new OrderEnforcer<>(Stage.CAPABILITIES_AVAILABLE);
   }
 
@@ -156,35 +159,17 @@ public class CameraFragment extends Fragment implements TextureView.SurfaceTextu
         Bitmap preview = cameraPreview.getBitmap();
         fastCaptureTimer.split("preview");
 
-        // NEW
-        float camWidth   = isPortrait() ? Math.min(capabilities.previewWidth, capabilities.previewHeight) : Math.max(capabilities.previewWidth, capabilities.previewHeight);
-        float camHeight  = isPortrait() ? Math.max(capabilities.previewWidth, capabilities.previewHeight) : Math.min(capabilities.previewWidth, capabilities.previewHeight);
-        float viewWidth  = cameraPreview.getWidth();
-        float viewHeight = cameraPreview.getHeight();
-
-        float scaleX = 1;
-        float scaleY = 1;
-
-        if ((camWidth / viewWidth) > (camWidth / viewWidth)) {
-          scaleX = camWidth / viewWidth;
-        } else {
-          scaleY = camHeight / viewHeight;
-        }
-
+        PointF scale  = computeScaleTransform(capabilities.previewWidth, capabilities.previewHeight, cameraPreview.getWidth(), cameraPreview.getHeight());
         Matrix matrix = new Matrix();
-        matrix.setScale(scaleX, scaleY);
 
-        Bitmap full = Bitmap.createBitmap(preview, 0, 0, (int) viewWidth, (int) (viewHeight / scaleY), matrix, true);
+        matrix.setScale(scale.x, scale.y);
+
+        Bitmap full = Bitmap.createBitmap(preview, 0, 0, (int) (cameraPreview.getWidth() / scale.x), (int) (cameraPreview.getHeight() / scale.y), matrix, true);
         fastCaptureTimer.split("transformed");
 
         ByteArrayOutputStream stream = new ByteArrayOutputStream();
         full.compress(Bitmap.CompressFormat.JPEG, 80, stream);
         fastCaptureTimer.split("compress");
-
-        // END NEW
-//        ByteArrayOutputStream stream = new ByteArrayOutputStream();
-//        preview.compress(Bitmap.CompressFormat.JPEG, 80, stream);
-//        fastCaptureTimer.split("compress");
 
         fastCaptureTimer.stop(TAG);
 
@@ -242,10 +227,17 @@ public class CameraFragment extends Fragment implements TextureView.SurfaceTextu
   }
 
   private void updatePreviewScale() {
-    float camWidth   = isPortrait() ? Math.min(capabilities.previewWidth, capabilities.previewHeight) : Math.max(capabilities.previewWidth, capabilities.previewHeight);
-    float camHeight  = isPortrait() ? Math.max(capabilities.previewWidth, capabilities.previewHeight) : Math.min(capabilities.previewWidth, capabilities.previewHeight);
-    float viewWidth  = cameraPreview.getWidth();
-    float viewHeight = cameraPreview.getHeight();
+    PointF scale = computeScaleTransform(capabilities.previewWidth, capabilities.previewHeight, cameraPreview.getWidth(), cameraPreview.getHeight());
+
+    Matrix matrix = new Matrix();
+    matrix.setScale(scale.x, scale.y);
+
+    cameraPreview.setTransform(matrix);
+  }
+
+  private PointF computeScaleTransform(int rawCamWidth, int rawCamHeight, int viewWidth, int viewHeight) {
+    float camWidth   = isPortrait() ? Math.min(rawCamWidth, rawCamHeight) : Math.max(rawCamWidth, rawCamHeight);
+    float camHeight  = isPortrait() ? Math.max(rawCamWidth, rawCamHeight) : Math.min(rawCamWidth, rawCamHeight);
 
     float scaleX = 1;
     float scaleY = 1;
@@ -256,10 +248,7 @@ public class CameraFragment extends Fragment implements TextureView.SurfaceTextu
       scaleY = camHeight / viewHeight;
     }
 
-    Matrix matrix = new Matrix();
-    matrix.setScale(scaleX, scaleY);
-
-    cameraPreview.setTransform(matrix);
+    return new PointF(scaleX, scaleY);
   }
 
 
@@ -267,37 +256,11 @@ public class CameraFragment extends Fragment implements TextureView.SurfaceTextu
     int surfaceWidth  = cameraPreview.getWidth();
     int surfaceHeight = cameraPreview.getHeight();
 
-//    float widthRatio  = (float) imgWidth / surfaceWidth;
-//    float heightRatio = (float) imgHeight / surfaceHeight;
-//
-//    int targetWidth  = imgWidth;
-//    int targetHeight = imgHeight;
-//
-//    if (widthRatio < heightRatio) {
-//      float surfaceRatio = (float) surfaceHeight / surfaceWidth;
-//      targetHeight = (int) (targetWidth * surfaceRatio);
-//    } else {
-//      float surfaceRatio = (float) surfaceWidth / surfaceHeight;
-//      targetWidth = (int) (targetHeight * surfaceRatio);
-//    }
-//
-//    Rect rect = new Rect();
-//    rect.left   = Math.abs(targetWidth - imgWidth) / 2;
-//    rect.right  = imgWidth - Math.abs(targetWidth - imgWidth) / 2;
-//    rect.top    = Math.abs(targetHeight - imgHeight) / 2;
-//    rect.bottom = imgHeight - Math.abs(targetHeight - imgHeight) / 2;
-//
-//    return BitmapUtil.createFromNV21(nv21Data, imgWidth, imgHeight, 0, rect, false);
+    float widthRatio  = (float) imgWidth / surfaceWidth;
+    float heightRatio = (float) imgHeight / surfaceHeight;
 
-    Bitmap bitmap     = BitmapFactory.decodeByteArray(imgData, 0, imgData.length);
-    int    jpegWidth  = bitmap.getWidth();
-    int    jpegHeight = bitmap.getHeight();
-
-    float widthRatio  = (float) jpegWidth  / surfaceWidth;
-    float heightRatio = (float) jpegHeight / surfaceHeight;
-
-    int targetWidth  = jpegWidth;
-    int targetHeight = jpegHeight;
+    int targetWidth  = imgWidth;
+    int targetHeight = imgHeight;
 
     if (widthRatio < heightRatio) {
       float surfaceRatio = (float) surfaceHeight / surfaceWidth;
@@ -307,16 +270,13 @@ public class CameraFragment extends Fragment implements TextureView.SurfaceTextu
       targetWidth = (int) (targetHeight * surfaceRatio);
     }
 
-    // TODO: Right now, our bitmap is larger than necessary. We should be targeting the size of the surface, not the original jpeg.
-    Bitmap processed = Bitmap.createBitmap(bitmap,
-                                           Math.abs(targetWidth - jpegWidth) / 2,
-                                           Math.abs(targetHeight - jpegHeight) / 2,
-                                           targetWidth,
-                                           targetHeight);
+    Rect rect = new Rect();
+    rect.left   = Math.abs(targetWidth - imgWidth) / 2;
+    rect.right  = imgWidth - Math.abs(targetWidth - imgWidth) / 2;
+    rect.top    = Math.abs(targetHeight - imgHeight) / 2;
+    rect.bottom = imgHeight - Math.abs(targetHeight - imgHeight) / 2;
 
-    ByteArrayOutputStream os = new ByteArrayOutputStream();
-    processed.compress(Bitmap.CompressFormat.JPEG, 85, os);
-    return os.toByteArray();
+    return BitmapUtil.createFromNV21(imgData, imgWidth, imgHeight, 0, rect, false);
   }
 
   private boolean isPortrait() {

@@ -3,19 +3,23 @@ package org.thoughtcrime.securesms.camera;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v7.app.AppCompatActivity;
+import android.view.View;
+import android.view.WindowManager;
 import android.widget.ImageView;
 import android.widget.Toast;
 
 import org.thoughtcrime.securesms.R;
+import org.thoughtcrime.securesms.TransportOption;
 import org.thoughtcrime.securesms.components.GlideDrawableListeningTarget;
 import org.thoughtcrime.securesms.logging.Log;
 import org.thoughtcrime.securesms.mms.DecryptableStreamUriLoader;
 import org.thoughtcrime.securesms.mms.GlideApp;
-import org.thoughtcrime.securesms.scribbles.ScribbleComposeMode;
+import org.thoughtcrime.securesms.providers.PersistentBlobProvider;
 import org.thoughtcrime.securesms.scribbles.ScribbleFragment;
 import org.thoughtcrime.securesms.util.concurrent.AssertedSuccessListener;
 import org.thoughtcrime.securesms.util.concurrent.SettableFuture;
@@ -27,23 +31,25 @@ public class CameraActivity extends AppCompatActivity implements CameraFragment.
 
   private static final String TAG = CameraActivity.class.getSimpleName();
 
-  private static final String TAG_CAMERA  = "camera";
-  private static final String TAG_EDITOR  = "editor";
-  private static final String KEY_IS_PUSH = "is_push";
+  private static final String TAG_CAMERA    = "camera";
+  private static final String TAG_EDITOR    = "editor";
+  private static final String KEY_TRANSPORT = "transport";
 
-  public static final String EXTRA_MESSAGE = "message";
-  public static final String EXTRA_IS_PUSH = "is_push";
-  public static final String EXTRA_WIDTH   = "width";
-  public static final String EXTRA_HEIGHT  = "height";
-  public static final String EXTRA_SIZE    = "size";
+  public static final String EXTRA_MESSAGE   = "message";
+  public static final String EXTRA_TRANSPORT = "transport";
+  public static final String EXTRA_WIDTH     = "width";
+  public static final String EXTRA_HEIGHT    = "height";
+  public static final String EXTRA_SIZE      = "size";
 
-  private ImageView snapshot;
-  private boolean   isPush;
+  private ImageView       snapshot;
+  private TransportOption transportOption;
+  private Uri             imageUri;
+  private boolean         success;
 
 
-  public static Intent getIntent(@NonNull Context context, boolean isPush) {
+  public static Intent getIntent(@NonNull Context context, @NonNull TransportOption transportOption) {
     Intent intent = new Intent(context, CameraActivity.class);
-    intent.putExtra(KEY_IS_PUSH, isPush);
+    intent.putExtra(KEY_TRANSPORT, transportOption);
     return intent;
   }
 
@@ -52,12 +58,23 @@ public class CameraActivity extends AppCompatActivity implements CameraFragment.
     super.onCreate(savedInstanceState);
     setContentView(R.layout.camera_activity);
 
-    snapshot = findViewById(R.id.camera_snapshot);
-    isPush   = getIntent().getBooleanExtra(KEY_IS_PUSH, false);
+    snapshot        = findViewById(R.id.camera_snapshot);
+    transportOption = (TransportOption) getIntent().getSerializableExtra(KEY_TRANSPORT);
 
     if (savedInstanceState == null) {
       CameraFragment fragment = CameraFragment.newInstance();
       getSupportFragmentManager().beginTransaction().add(R.id.fragment_container, fragment, TAG_CAMERA).commit();
+    }
+  }
+
+  @Override
+  protected void onDestroy() {
+    super.onDestroy();
+
+    // TODO: Both images
+    if (!success && imageUri != null) {
+      PersistentBlobProvider.getInstance(this).delete(this, imageUri);
+      imageUri = null;
     }
   }
 
@@ -67,6 +84,11 @@ public class CameraActivity extends AppCompatActivity implements CameraFragment.
     if (fragment != null && fragment.isEmojiKeyboardVisible()) {
       fragment.dismissEmojiKeyboard();
     } else {
+      // TODO: Both images
+      if (imageUri != null) {
+        PersistentBlobProvider.getInstance(this).delete(this, imageUri);
+        imageUri = null;
+      }
       super.onBackPressed();
     }
   }
@@ -81,12 +103,14 @@ public class CameraActivity extends AppCompatActivity implements CameraFragment.
 
   @Override
   public void onFastImageCaptured(@NonNull Uri uri) {
+    imageUri = uri;
+
     SettableFuture<Boolean> result = new SettableFuture<>();
     GlideApp.with(this).load(new DecryptableStreamUriLoader.DecryptableUri(uri)).into(new GlideDrawableListeningTarget(snapshot, result));
     result.addListener(new AssertedSuccessListener<Boolean>() {
       @Override
       public void onSuccess(Boolean result) {
-        ScribbleFragment fragment = ScribbleFragment.newInstance(uri, isPush ? ScribbleComposeMode.PUSH : ScribbleComposeMode.SMS);
+        ScribbleFragment fragment = ScribbleFragment.newInstance(uri, Optional.of(transportOption));
         getSupportFragmentManager().beginTransaction()
                                    .replace(R.id.fragment_container, fragment, TAG_EDITOR)
                                    .addToBackStack(null)
@@ -106,14 +130,15 @@ public class CameraActivity extends AppCompatActivity implements CameraFragment.
   }
 
   @Override
-  public void onImageEditComplete(@NonNull Uri uri, int width, int height, long size, @NonNull Optional<String> message, boolean isPush) {
+  public void onImageEditComplete(@NonNull Uri uri, int width, int height, long size, @NonNull Optional<String> message) {
+    success = true;
+    
     Intent intent = new Intent();
     intent.setData(uri);
     intent.putExtra(EXTRA_WIDTH, width);
     intent.putExtra(EXTRA_HEIGHT, height);
     intent.putExtra(EXTRA_SIZE, size);
     intent.putExtra(EXTRA_MESSAGE, message.or(""));
-    intent.putExtra(EXTRA_IS_PUSH, isPush);
     setResult(RESULT_OK, intent);
     finish();
   }
